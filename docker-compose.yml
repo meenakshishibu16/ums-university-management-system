@@ -1,0 +1,60 @@
+version: '3.9'
+
+services:
+
+  # ── MySQL ──────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: ums-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: ums_db
+      MYSQL_USER: ums_user
+      MYSQL_PASSWORD: ums_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - ums_mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ums_user", "-pums_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Quarkus Backend ────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ums-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:mysql://mysql:3306/ums_db?serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+      QUARKUS_DATASOURCE_USERNAME: ums_user
+      QUARKUS_DATASOURCE_PASSWORD: ums_password
+      MP_JWT_VERIFY_ISSUER: https://ums.university.edu
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/src/main/resources/privateKey.pem:/deployments/privateKey.pem:ro
+      - ./backend/src/main/resources/publicKey.pem:/deployments/publicKey.pem:ro
+
+  # ── Angular Frontend ───────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ums-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "4200:80"
+
+volumes:
+  ums_mysql_data:
